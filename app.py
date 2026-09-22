@@ -1,8 +1,10 @@
 import streamlit as st
 
 import pymssql
+
+import pandas as pd
  
-st.title("ASRA Database Connection Test")
+st.title("ASRA Database Read Test")
  
 try:
 
@@ -22,15 +24,20 @@ try:
 
     )
  
-    cursor = conn.cursor()
+    query = """
 
-    cursor.execute("SELECT 1")
+    SELECT TOP 10 *
+    FROM dbo.DCRreport
+
+    """
  
-    result = cursor.fetchone()
+    df = pd.read_sql(query, conn)
  
     st.success("Database connection successful")
 
-    st.write(result)
+    st.dataframe(df)
+ 
+    conn.close()
  
 except Exception as e:
 
