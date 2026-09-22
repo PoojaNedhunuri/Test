@@ -1,17 +1,25 @@
 import streamlit as st
-import pymssql
-import pandas as pd 
 
+import pymssql
+ 
 st.title("ASRA Database Connection Test")
  
 try:
- conn = pymssql.connect(
+
+    conn = pymssql.connect(
+
         server=st.secrets["DB_SERVER"],
+
         user=st.secrets["DB_USER"],
+
         password=st.secrets["DB_PASSWORD"],
+
         database=st.secrets["DB_DATABASE"],
+
         login_timeout=10,
+
         timeout=10
+
     )
  
     cursor = conn.cursor()
@@ -22,6 +30,7 @@ try:
  
     st.success("Database connection successful")
 
+    st.write(result)
  
 except Exception as e:
 
