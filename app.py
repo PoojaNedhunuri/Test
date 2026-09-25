@@ -50,12 +50,24 @@ def fetch_list(query, params=None):
 # =========================================================
 
 @st.cache_data(ttl=3600)
-def get_years():
-    return fetch_list("""
-        SELECT DISTINCT YearNumber
-        FROM dbo.DimDate
-        ORDER BY YearNumber DESC
+def get_dcr_date_range():
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            MIN(ReportDate) AS MinDate,
+            MAX(ReportDate) AS MaxDate
+        FROM dbo.DCRReport
+        WHERE ReportDate IS NOT NULL
     """)
+
+    row = cursor.fetchone()
+
+    return row[0], row[1]
+
+min_report_date, max_report_date = get_dcr_date_range()
 
 
 @st.cache_data(ttl=3600)
@@ -222,7 +234,13 @@ def get_dcr_kpis(
 
     return cursor.fetchone()
 
-
+available_years = list(
+    range(
+        max_report_date.year,
+        min_report_date.year - 1,
+        -1
+    )
+)
 # =========================================================
 # SIDEBAR
 # =========================================================
@@ -238,7 +256,7 @@ years = get_years()
 
 selected_year = st.sidebar.selectbox(
     "Year",
-    years
+    available_years
 )
 
 
@@ -371,6 +389,22 @@ start_date, end_date = get_date_range(
     selected_quarter,
     selected_month
 )
+
+# Do not query outside actual DCR data range
+if start_date < min_report_date:
+    start_date = min_report_date
+
+max_end_date = max_report_date.replace(
+    day=max_report_date.day
+)
+
+# end_date is exclusive, so add one day to max report date
+from datetime import timedelta
+
+actual_max_end = max_report_date + timedelta(days=1)
+
+if end_date > actual_max_end:
+    end_date = actual_max_end
 
 
 # =========================================================
