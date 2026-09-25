@@ -1,595 +1,442 @@
 import streamlit as st
-
 import pymssql
+from datetime import date
 
-import pandas as pd
 
-from datetime import date, timedelta
- 
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+
 st.set_page_config(
-
-    page_title="ASRA DCR Dashboard",
-
+    page_title="DCR Performance Dashboard",
     layout="wide"
-
 )
- 
-st.title("ASRA DCR Performance")
- 
- 
-# -------------------------
 
+st.title("DCR Performance Dashboard")
+
+
+# =========================================================
 # DATABASE CONNECTION
+# =========================================================
 
-# -------------------------
- 
 @st.cache_resource
-
 def get_connection():
-
     return pymssql.connect(
-
         server=st.secrets["DB_SERVER"],
-
         user=st.secrets["DB_USER"],
-
         password=st.secrets["DB_PASSWORD"],
-
         database=st.secrets["DB_DATABASE"],
-
         login_timeout=10,
-
-        timeout=120
-
+        timeout=180
     )
- 
- 
-conn = get_connection()
- 
- 
-# -------------------------
 
-# DATE NORMALIZATION
 
-# -------------------------
+# =========================================================
+# SIMPLE QUERY HELPER
+# =========================================================
 
-# D_Date_Report contains multiple text formats.
+def fetch_list(query, params=None):
+    conn = get_connection()
+    cursor = conn.cursor()
 
-# Examples:
+    cursor.execute(query, params or ())
+    rows = cursor.fetchall()
 
-# 13-05-2025 00:00:00
+    return [row[0] for row in rows if row[0] is not None]
 
-# 3/10/2026 12:00:00 AM
- 
-DATE_EXPR = """
 
-COALESCE(
-
-    TRY_CONVERT(date, D_Date_Report, 105),
-
-    TRY_CONVERT(date, D_Date_Report, 101),
-
-    TRY_CONVERT(date, D_Date_Report)
-
-)
-
-"""
- 
- 
-# -------------------------
-
+# =========================================================
 # FILTER VALUES
+# =========================================================
 
-# -------------------------
- 
 @st.cache_data(ttl=3600)
+def get_years():
+    return fetch_list("""
+        SELECT DISTINCT YearNumber
+        FROM dbo.DimDate
+        ORDER BY YearNumber DESC
+    """)
 
-def get_divisions():
 
-    query = """
-
-    SELECT DISTINCT DivisionCode
-
-    FROM dbo.DCRReport
-
-    WHERE DivisionCode IS NOT NULL
-
-      AND LTRIM(RTRIM(DivisionCode)) <> ''
-
-    ORDER BY DivisionCode
-
-    """
- 
-    return pd.read_sql(query, conn)["DivisionCode"].tolist()
- 
- 
 @st.cache_data(ttl=3600)
-
 def get_designations():
- 
-    query = """
+    return fetch_list("""
+        SELECT DISTINCT LTRIM(RTRIM(newdesg))
+        FROM dbo.employeedata
+        WHERE newdesg IS NOT NULL
+          AND LTRIM(RTRIM(newdesg)) <> ''
+          AND LTRIM(RTRIM(newdesg)) <> '--Select--'
+        ORDER BY LTRIM(RTRIM(newdesg))
+    """)
 
-    SELECT DISTINCT
 
-        LEFT(
+@st.cache_data(ttl=3600)
+def get_divisions():
+    conn = get_connection()
+    cursor = conn.cursor()
 
-            C_FS_Code,
+    cursor.execute("""
+        SELECT DISTINCT
+            DivisionCode,
+            DivisionName
+        FROM dbo.Division
+        WHERE DivisionCode IS NOT NULL
+          AND DivisionName IS NOT NULL
+        ORDER BY DivisionName
+    """)
 
-            PATINDEX('%[0-9]%', C_FS_Code + '0') - 1
+    return cursor.fetchall()
 
-        ) AS Designation
 
-    FROM dbo.DCRReport
+# =========================================================
+# DATE RANGE
+# =========================================================
 
-    WHERE C_FS_Code IS NOT NULL
+def get_date_range(year, quarter=None, month=None):
 
-    """
- 
-    df = pd.read_sql(query, conn)
- 
-    return sorted(
+    # Month selected
+    if month is not None:
+        start_date = date(year, month, 1)
 
-        df["Designation"]
+        if month == 12:
+            end_date = date(year + 1, 1, 1)
+        else:
+            end_date = date(year, month + 1, 1)
 
-        .dropna()
+        return start_date, end_date
 
-        .unique()
+    # Quarter selected
+    if quarter is not None:
 
-        .tolist()
+        start_month = ((quarter - 1) * 3) + 1
 
+        start_date = date(
+            year,
+            start_month,
+            1
+        )
+
+        if quarter == 4:
+            end_date = date(year + 1, 1, 1)
+        else:
+            end_date = date(
+                year,
+                start_month + 3,
+                1
+            )
+
+        return start_date, end_date
+
+    # Year selected only
+    return (
+        date(year, 1, 1),
+        date(year + 1, 1, 1)
     )
- 
- 
-# -------------------------
 
-# SIDEBAR FILTERS
 
-# -------------------------
- 
-st.sidebar.header("Filters")
- 
- 
-default_end = date.today()
+# =========================================================
+# DCR KPI QUERY
+# =========================================================
 
-default_start = default_end - timedelta(days=30)
- 
- 
-date_range = st.sidebar.date_input(
-
-    "Report Date",
-
-    value=(default_start, default_end)
-
-)
- 
- 
-designations = get_designations()
- 
-selected_designation = st.sidebar.selectbox(
-
-    "Designation",
-
-    ["All"] + designations
-
-)
- 
- 
-divisions = get_divisions()
- 
-selected_division = st.sidebar.selectbox(
-
-    "Division",
-
-    ["All"] + divisions
-
-)
- 
- 
-hq_input = st.sidebar.text_input(
-
-    "HQ Code",
-
-    placeholder="Enter HQ code"
-
-)
- 
- 
-# -------------------------
-
-# BUILD WHERE CLAUSE
-
-# -------------------------
- 
-start_date = date_range[0]
- 
-if len(date_range) == 2:
-
-    end_date = date_range[1]
-
-else:
-
-    end_date = start_date
- 
- 
-where_conditions = [
-
-    f"{DATE_EXPR} >= %s",
-
-    f"{DATE_EXPR} <= %s"
-
-]
- 
-params = [
-
-    start_date,
-
-    end_date
-
-]
- 
- 
-if selected_designation != "All":
- 
-    where_conditions.append(
-
-        """
-
-        LEFT(
-
-            C_FS_Code,
-
-            PATINDEX('%[0-9]%', C_FS_Code + '0') - 1
-
-        ) = %s
-
-        """
-
-    )
- 
-    params.append(selected_designation)
- 
- 
-if selected_division != "All":
- 
-    where_conditions.append(
-
-        "DivisionCode = %s"
-
-    )
- 
-    params.append(selected_division)
- 
- 
-if hq_input.strip():
- 
-    where_conditions.append(
-
-        "C_HQ_Code = %s"
-
-    )
- 
-    params.append(hq_input.strip())
- 
- 
-where_clause = " AND ".join(where_conditions)
- 
- 
-# -------------------------
-
-# KPI QUERY
-
-# -------------------------
- 
 @st.cache_data(ttl=600)
-
-def get_kpis(
-
+def get_dcr_kpis(
     start_date,
-
     end_date,
-
-    designation,
-
-    division,
-
-    hq
-
+    designation=None,
+    division_code=None
 ):
- 
-    conditions = [
 
-        f"{DATE_EXPR} >= %s",
-
-        f"{DATE_EXPR} <= %s"
-
-    ]
- 
-    query_params = [
-
-        start_date,
-
-        end_date
-
-    ]
- 
- 
-    if designation != "All":
- 
-        conditions.append(
-
-            """
-
-            LEFT(
-
-                C_FS_Code,
-
-                PATINDEX('%[0-9]%', C_FS_Code + '0') - 1
-
-            ) = %s
-
-            """
-
-        )
- 
-        query_params.append(designation)
- 
- 
-    if division != "All":
- 
-        conditions.append(
-
-            "DivisionCode = %s"
-
-        )
- 
-        query_params.append(division)
- 
- 
-    if hq:
- 
-        conditions.append(
-
-            "C_HQ_Code = %s"
-
-        )
- 
-        query_params.append(hq)
- 
- 
-    filters = " AND ".join(conditions)
- 
- 
-    query = f"""
-
-    WITH FilteredDCR AS
-
-    (
-
+    query = """
         SELECT
 
-            C_FS_Code,
+            COUNT(DISTINCT d.C_EmpNo)
+                AS ActiveEmployees,
 
-            C_DSC_Code,
+            COUNT(DISTINCT d.C_DSC_Code)
+                AS UniqueDoctors,
 
-            C_HQ_Code,
+            COUNT(
+                DISTINCT CONCAT(
+                    d.C_EmpNo,
+                    '|',
+                    d.C_DSC_Code,
+                    '|',
+                    CONVERT(VARCHAR(10), d.ReportDate, 23)
+                )
+            ) AS DoctorDayContacts,
 
-            ItemCode,
+            COUNT(DISTINCT d.ItemCode)
+                AS ProductsDetailed,
 
-            {DATE_EXPR} AS ReportDate
+            COUNT_BIG(*)
+                AS TotalDCRRecords
 
-        FROM dbo.DCRReport
-
-        WHERE {filters}
-
-    ),
- 
-    Contacts AS
-
-    (
-
-        SELECT DISTINCT
-
-            C_FS_Code,
-
-            C_DSC_Code,
-
-            ReportDate
-
-        FROM FilteredDCR
-
-        WHERE C_FS_Code IS NOT NULL
-
-          AND C_DSC_Code IS NOT NULL
-
-          AND ReportDate IS NOT NULL
-
-    )
- 
-    SELECT
- 
-        (
-
-            SELECT COUNT(DISTINCT C_FS_Code)
-
-            FROM FilteredDCR
-
-            WHERE C_FS_Code IS NOT NULL
-
-        ) AS ActiveEmployees,
- 
-        (
-
-            SELECT COUNT(DISTINCT C_DSC_Code)
-
-            FROM FilteredDCR
-
-            WHERE C_DSC_Code IS NOT NULL
-
-        ) AS UniqueDoctors,
- 
-        (
-
-            SELECT COUNT(*)
-
-            FROM Contacts
-
-        ) AS DoctorDayContacts,
- 
-        (
-
-            SELECT COUNT(DISTINCT C_HQ_Code)
-
-            FROM FilteredDCR
-
-            WHERE C_HQ_Code IS NOT NULL
-
-        ) AS UniqueHQs,
- 
-        (
-
-            SELECT COUNT(DISTINCT ItemCode)
-
-            FROM FilteredDCR
-
-            WHERE ItemCode IS NOT NULL
-
-        ) AS UniqueProducts
-
+        FROM dbo.DCRReport d
     """
- 
-    return pd.read_sql(
 
+    conditions = [
+        "d.ReportDate >= %s",
+        "d.ReportDate < %s",
+        "d.C_EmpNo IS NOT NULL",
+        "LTRIM(RTRIM(d.C_EmpNo)) <> '000000'"
+    ]
+
+    params = [
+        start_date,
+        end_date
+    ]
+
+    # Only join employee table if designation is selected
+    if designation is not None:
+
+        query += """
+            INNER JOIN dbo.employeedata e
+                ON LTRIM(RTRIM(d.C_EmpNo))
+                 = LTRIM(RTRIM(e.empCODE))
+        """
+
+        conditions.append(
+            "LTRIM(RTRIM(e.newdesg)) = %s"
+        )
+
+        params.append(designation)
+
+    # Division already exists directly in DCRReport
+    if division_code is not None:
+
+        conditions.append(
+            "LTRIM(RTRIM(d.DivisionCode)) = %s"
+        )
+
+        params.append(division_code)
+
+    query += "\nWHERE " + "\nAND ".join(conditions)
+
+    conn = get_connection()
+    cursor = conn.cursor(as_dict=True)
+
+    cursor.execute(
         query,
-
-        conn,
-
-        params=query_params
-
+        tuple(params)
     )
- 
- 
-kpi = get_kpis(
 
-    start_date,
+    return cursor.fetchone()
 
-    end_date,
 
-    selected_designation,
+# =========================================================
+# SIDEBAR
+# =========================================================
 
-    selected_division,
+st.sidebar.header("Filters")
 
-    hq_input.strip()
 
+# ---------------------------------------------------------
+# YEAR
+# ---------------------------------------------------------
+
+years = get_years()
+
+selected_year = st.sidebar.selectbox(
+    "Year",
+    years
 )
- 
- 
-# -------------------------
 
-# DISPLAY KPI CARDS
 
-# -------------------------
- 
-active_employees = int(
+# ---------------------------------------------------------
+# QUARTER
+# ---------------------------------------------------------
 
-    kpi["ActiveEmployees"].iloc[0] or 0
+quarter_options = {
+    "All": None,
+    "Q1": 1,
+    "Q2": 2,
+    "Q3": 3,
+    "Q4": 4
+}
 
+selected_quarter_label = st.sidebar.selectbox(
+    "Quarter",
+    list(quarter_options.keys())
 )
- 
-unique_doctors = int(
 
-    kpi["UniqueDoctors"].iloc[0] or 0
+selected_quarter = quarter_options[
+    selected_quarter_label
+]
 
+
+# ---------------------------------------------------------
+# MONTH
+# ---------------------------------------------------------
+
+all_months = {
+    1: "January",
+    2: "February",
+    3: "March",
+    4: "April",
+    5: "May",
+    6: "June",
+    7: "July",
+    8: "August",
+    9: "September",
+    10: "October",
+    11: "November",
+    12: "December"
+}
+
+
+# Restrict months according to selected quarter
+if selected_quarter == 1:
+    valid_months = [1, 2, 3]
+
+elif selected_quarter == 2:
+    valid_months = [4, 5, 6]
+
+elif selected_quarter == 3:
+    valid_months = [7, 8, 9]
+
+elif selected_quarter == 4:
+    valid_months = [10, 11, 12]
+
+else:
+    valid_months = list(range(1, 13))
+
+
+month_options = {
+    "All": None
+}
+
+for month_number in valid_months:
+    month_options[
+        all_months[month_number]
+    ] = month_number
+
+
+selected_month_label = st.sidebar.selectbox(
+    "Month",
+    list(month_options.keys())
 )
- 
-contacts = int(
 
-    kpi["DoctorDayContacts"].iloc[0] or 0
+selected_month = month_options[
+    selected_month_label
+]
 
+
+# ---------------------------------------------------------
+# DESIGNATION
+# ---------------------------------------------------------
+
+designations = get_designations()
+
+selected_designation = st.sidebar.selectbox(
+    "Designation",
+    ["All"] + designations
 )
- 
-unique_hqs = int(
 
-    kpi["UniqueHQs"].iloc[0] or 0
-
+designation_value = (
+    None
+    if selected_designation == "All"
+    else selected_designation
 )
- 
-unique_products = int(
 
-    kpi["UniqueProducts"].iloc[0] or 0
 
+# ---------------------------------------------------------
+# DIVISION
+# ---------------------------------------------------------
+
+division_rows = get_divisions()
+
+division_map = {
+    division_name: division_code
+    for division_code, division_name in division_rows
+}
+
+selected_division = st.sidebar.selectbox(
+    "Division",
+    ["All"] + list(division_map.keys())
 )
- 
- 
-avg_contacts = (
 
-    contacts / active_employees
-
-    if active_employees > 0
-
-    else 0
-
+division_code = (
+    None
+    if selected_division == "All"
+    else division_map[selected_division]
 )
- 
- 
-col1, col2, col3 = st.columns(3)
- 
-col1.metric(
 
-    "Active Employees",
 
-    f"{active_employees:,}"
+# =========================================================
+# CONVERT YEAR / QUARTER / MONTH → DATE RANGE
+# =========================================================
 
+start_date, end_date = get_date_range(
+    selected_year,
+    selected_quarter,
+    selected_month
 )
- 
-col2.metric(
 
-    "Unique Doctors",
 
-    f"{unique_doctors:,}"
+# =========================================================
+# SHOW ACTIVE FILTER PERIOD
+# =========================================================
 
-)
- 
-col3.metric(
-
-    "Doctor-Day Contacts",
-
-    f"{contacts:,}"
-
-)
- 
- 
-col4, col5, col6 = st.columns(3)
- 
-col4.metric(
-
-    "Unique HQs",
-
-    f"{unique_hqs:,}"
-
-)
- 
-col5.metric(
-
-    "Products Detailed",
-
-    f"{unique_products:,}"
-
-)
- 
-col6.metric(
-
-    "Avg Contacts / Employee",
-
-    f"{avg_contacts:,.1f}"
-
-)
- 
- 
 st.caption(
-
-    "Doctor-Day Contact = unique Employee + Doctor + Report Date. "
-
-    "This definition is temporary until N_Srno business logic is confirmed."
-
+    f"Reporting period: "
+    f"{start_date.strftime('%d %b %Y')} "
+    f"to "
+    f"{(end_date).strftime('%d %b %Y')} "
+    f"(end date exclusive)"
 )
- 
+
+
+# =========================================================
+# GET KPIs
+# =========================================================
+
+with st.spinner("Loading dashboard..."):
+
+    kpis = get_dcr_kpis(
+        start_date=start_date,
+        end_date=end_date,
+        designation=designation_value,
+        division_code=division_code
+    )
+
+
+# =========================================================
+# KPI CARDS
+# =========================================================
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+
+with col1:
+    st.metric(
+        "Active Employees",
+        f"{int(kpis['ActiveEmployees'] or 0):,}"
+    )
+
+
+with col2:
+    st.metric(
+        "Unique Doctors",
+        f"{int(kpis['UniqueDoctors'] or 0):,}"
+    )
+
+
+with col3:
+    st.metric(
+        "Doctor-Day Contacts",
+        f"{int(kpis['DoctorDayContacts'] or 0):,}"
+    )
+
+
+with col4:
+    st.metric(
+        "Products Detailed",
+        f"{int(kpis['ProductsDetailed'] or 0):,}"
+    )
+
+
+with col5:
+    st.metric(
+        "DCR Records",
+        f"{int(kpis['TotalDCRRecords'] or 0):,}"
+    )
