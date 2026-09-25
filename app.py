@@ -117,12 +117,18 @@ def get_designations():
 
     return fetch_list("""
         SELECT DISTINCT
-            LTRIM(RTRIM(newdesg))
-        FROM dbo.employeedata
-        WHERE newdesg IS NOT NULL
-          AND LTRIM(RTRIM(newdesg)) <> ''
-          AND LTRIM(RTRIM(newdesg)) <> '--Select--'
-        ORDER BY LTRIM(RTRIM(newdesg))
+            LTRIM(RTRIM(e.newdesg)) AS Designation
+        FROM dbo.employeedata e
+        WHERE e.newdesg IS NOT NULL
+          AND LTRIM(RTRIM(e.newdesg)) <> ''
+          AND LTRIM(RTRIM(e.newdesg)) <> '--Select--'
+          AND EXISTS
+          (
+              SELECT 1
+              FROM dbo.DCRReport d
+              WHERE d.C_EmpNo = e.empCODE
+          )
+        ORDER BY Designation
     """)
 
 
