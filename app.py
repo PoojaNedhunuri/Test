@@ -1,10 +1,14 @@
 import streamlit as st
 import pymssql
 
+st.set_page_config(
+    page_title="SQL Server Connection Test",
+    layout="wide"
+)
+
 st.title("SQL Server Connection Test")
 
 try:
-
     conn = pymssql.connect(
         server=st.secrets["DB_SERVER"],
         user=st.secrets["DB_USER"],
@@ -20,12 +24,12 @@ try:
 
     result = cursor.fetchone()
 
-    st.success(f"SQL Server connected successfully: {result[0]}")
+    st.success(
+        f"SQL Server connected successfully: {result[0]}"
+    )
 
     conn.close()
 
 except Exception as e:
-
     st.error("SQL Server connection failed")
-
     st.exception(e)
