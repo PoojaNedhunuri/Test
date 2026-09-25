@@ -246,8 +246,13 @@ def get_dcr_kpis(
         "d.C_EmpNo <> '000000'"
     ]
 
-    params = [start_date, end_date]
+    params = [
+        start_date,
+        end_date
+    ]
 
+
+    # Designation filter
     if designation is not None:
 
         query += """
@@ -255,20 +260,40 @@ def get_dcr_kpis(
                 ON d.C_EmpNo = e.empCODE
         """
 
-        conditions.append("e.newdesg = %s")
-        params.append(designation)
+        conditions.append(
+            "e.newdesg = %s"
+        )
 
+        params.append(
+            designation
+        )
+
+
+    # Division filter
     if division_code is not None:
-        conditions.append("d.DivisionCode = %s")
-        params.append(division_code)
+
+        conditions.append(
+            "d.DivisionCode = %s"
+        )
+
+        params.append(
+            division_code
+        )
+
 
     query += "\nWHERE " + "\nAND ".join(conditions)
+
 
     conn = get_connection()
 
     try:
         cursor = conn.cursor(as_dict=True)
-        cursor.execute(query, tuple(params))
+
+        cursor.execute(
+            query,
+            tuple(params)
+        )
+
         return cursor.fetchone()
 
     finally:
