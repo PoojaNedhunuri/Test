@@ -230,28 +230,10 @@ def get_dcr_kpis(
 
     query = """
         SELECT
-
-            COUNT(DISTINCT d.C_EmpNo)
-                AS ActiveEmployees,
-
-            COUNT(DISTINCT d.C_DSC_Code)
-                AS UniqueDoctors,
-
-            COUNT(
-                DISTINCT CONCAT(
-                    d.C_EmpNo,
-                    '|',
-                    d.C_DSC_Code,
-                    '|',
-                    CONVERT(VARCHAR(10), d.ReportDate, 23)
-                )
-            ) AS DoctorDayContacts,
-
-            COUNT(DISTINCT d.ItemCode)
-                AS ProductsDetailed,
-
-            COUNT_BIG(*)
-                AS TotalDCRRecords
+            COUNT(DISTINCT d.C_EmpNo) AS ActiveEmployees,
+            COUNT(DISTINCT d.C_DSC_Code) AS UniqueDoctors,
+            COUNT(DISTINCT d.ItemCode) AS ProductsDetailed,
+            COUNT_BIG(*) AS TotalDCRRecords
 
         FROM dbo.DCRReport d
     """
@@ -260,67 +242,36 @@ def get_dcr_kpis(
         "d.ReportDate >= %s",
         "d.ReportDate < %s",
         "d.C_EmpNo IS NOT NULL",
-        "LTRIM(RTRIM(d.C_EmpNo)) <> '000000'"
+        "d.C_EmpNo <> '000000'"
     ]
 
-    params = [
-        start_date,
-        end_date
-    ]
-
-
-    # -----------------------------------------------------
-    # DESIGNATION
-    # -----------------------------------------------------
+    params = [start_date, end_date]
 
     if designation is not None:
 
         query += """
             INNER JOIN dbo.employeedata e
-                ON LTRIM(RTRIM(d.C_EmpNo))
-                 = LTRIM(RTRIM(e.empCODE))
+                ON d.C_EmpNo = e.empCODE
         """
 
-        conditions.append(
-            "LTRIM(RTRIM(e.newdesg)) = %s"
-        )
-
+        conditions.append("e.newdesg = %s")
         params.append(designation)
 
-
-    # -----------------------------------------------------
-    # DIVISION
-    # -----------------------------------------------------
-
     if division_code is not None:
-
-        conditions.append(
-            "LTRIM(RTRIM(d.DivisionCode)) = %s"
-        )
-
+        conditions.append("d.DivisionCode = %s")
         params.append(division_code)
 
-
     query += "\nWHERE " + "\nAND ".join(conditions)
-
 
     conn = get_connection()
 
     try:
         cursor = conn.cursor(as_dict=True)
-
-        cursor.execute(
-            query,
-            tuple(params)
-        )
-
-        result = cursor.fetchone()
-
-        return result
+        cursor.execute(query, tuple(params))
+        return cursor.fetchone()
 
     finally:
         conn.close()
-
 
 # =========================================================
 # AVAILABLE YEARS
@@ -599,43 +550,27 @@ if kpis is None:
     st.stop()
 
 
-col1, col2, col3, col4, col5 = st.columns(5)
-
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-
     st.metric(
         "Active Employees",
         f"{int(kpis['ActiveEmployees'] or 0):,}"
     )
 
-
 with col2:
-
     st.metric(
         "Unique Doctors",
         f"{int(kpis['UniqueDoctors'] or 0):,}"
     )
 
-
 with col3:
-
-    st.metric(
-        "Doctor-Day Contacts",
-        f"{int(kpis['DoctorDayContacts'] or 0):,}"
-    )
-
-
-with col4:
-
     st.metric(
         "Products Detailed",
         f"{int(kpis['ProductsDetailed'] or 0):,}"
     )
 
-
-with col5:
-
+with col4:
     st.metric(
         "DCR Records",
         f"{int(kpis['TotalDCRRecords'] or 0):,}"
