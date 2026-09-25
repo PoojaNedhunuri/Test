@@ -1,6 +1,6 @@
 import streamlit as st
 import pymssql
-from datetime import date
+from datetime import date, timedelta
 
 
 # =========================================================
@@ -19,15 +19,14 @@ st.title("DCR Performance Dashboard")
 # DATABASE CONNECTION
 # =========================================================
 
-@st.cache_resource
 def get_connection():
     return pymssql.connect(
         server=st.secrets["DB_SERVER"],
         user=st.secrets["DB_USER"],
         password=st.secrets["DB_PASSWORD"],
         database=st.secrets["DB_DATABASE"],
-        login_timeout=10,
-        timeout=180
+        login_timeout=15,
+        timeout=300
     )
 
 
@@ -36,13 +35,76 @@ def get_connection():
 # =========================================================
 
 def fetch_list(query, params=None):
+
     conn = get_connection()
-    cursor = conn.cursor()
 
-    cursor.execute(query, params or ())
-    rows = cursor.fetchall()
+    try:
+        cursor = conn.cursor()
 
-    return [row[0] for row in rows if row[0] is not None]
+        cursor.execute(
+            query,
+            params or ()
+        )
+
+        rows = cursor.fetchall()
+
+        return [
+            row[0]
+            for row in rows
+            if row[0] is not None
+        ]
+
+    finally:
+        conn.close()
+
+
+# =========================================================
+# ACTUAL DCR DATE RANGE
+# =========================================================
+
+@st.cache_data(ttl=3600)
+def get_dcr_date_range():
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # Earliest available ReportDate
+        cursor.execute("""
+            SELECT TOP 1 ReportDate
+            FROM dbo.DCRReport
+            WHERE ReportDate IS NOT NULL
+            ORDER BY ReportDate ASC
+        """)
+
+        min_row = cursor.fetchone()
+
+        # Latest available ReportDate
+        cursor.execute("""
+            SELECT TOP 1 ReportDate
+            FROM dbo.DCRReport
+            WHERE ReportDate IS NOT NULL
+            ORDER BY ReportDate DESC
+        """)
+
+        max_row = cursor.fetchone()
+
+        if min_row is None or max_row is None:
+            return None, None
+
+        return min_row[0], max_row[0]
+
+    finally:
+        conn.close()
+
+
+min_report_date, max_report_date = get_dcr_date_range()
+
+
+if min_report_date is None or max_report_date is None:
+    st.error("No ReportDate values were found in DCRReport.")
+    st.stop()
 
 
 # =========================================================
@@ -50,30 +112,11 @@ def fetch_list(query, params=None):
 # =========================================================
 
 @st.cache_data(ttl=3600)
-def get_dcr_date_range():
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT
-            MIN(ReportDate) AS MinDate,
-            MAX(ReportDate) AS MaxDate
-        FROM dbo.DCRReport
-        WHERE ReportDate IS NOT NULL
-    """)
-
-    row = cursor.fetchone()
-
-    return row[0], row[1]
-
-min_report_date, max_report_date = get_dcr_date_range()
-
-
-@st.cache_data(ttl=3600)
 def get_designations():
+
     return fetch_list("""
-        SELECT DISTINCT LTRIM(RTRIM(newdesg))
+        SELECT DISTINCT
+            LTRIM(RTRIM(newdesg))
         FROM dbo.employeedata
         WHERE newdesg IS NOT NULL
           AND LTRIM(RTRIM(newdesg)) <> ''
@@ -84,38 +127,59 @@ def get_designations():
 
 @st.cache_data(ttl=3600)
 def get_divisions():
+
     conn = get_connection()
-    cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT DISTINCT
-            DivisionCode,
-            DivisionName
-        FROM dbo.Division
-        WHERE DivisionCode IS NOT NULL
-          AND DivisionName IS NOT NULL
-        ORDER BY DivisionName
-    """)
+    try:
+        cursor = conn.cursor()
 
-    return cursor.fetchall()
+        cursor.execute("""
+            SELECT DISTINCT
+                DivisionCode,
+                DivisionName
+            FROM dbo.Division
+            WHERE DivisionCode IS NOT NULL
+              AND DivisionName IS NOT NULL
+            ORDER BY DivisionName
+        """)
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
 
 
 # =========================================================
-# DATE RANGE
+# DATE RANGE FUNCTION
 # =========================================================
 
 def get_date_range(year, quarter=None, month=None):
 
     # Month selected
     if month is not None:
-        start_date = date(year, month, 1)
+
+        start_date = date(
+            year,
+            month,
+            1
+        )
 
         if month == 12:
-            end_date = date(year + 1, 1, 1)
+            end_date = date(
+                year + 1,
+                1,
+                1
+            )
+
         else:
-            end_date = date(year, month + 1, 1)
+            end_date = date(
+                year,
+                month + 1,
+                1
+            )
 
         return start_date, end_date
+
 
     # Quarter selected
     if quarter is not None:
@@ -129,7 +193,12 @@ def get_date_range(year, quarter=None, month=None):
         )
 
         if quarter == 4:
-            end_date = date(year + 1, 1, 1)
+            end_date = date(
+                year + 1,
+                1,
+                1
+            )
+
         else:
             end_date = date(
                 year,
@@ -139,7 +208,8 @@ def get_date_range(year, quarter=None, month=None):
 
         return start_date, end_date
 
-    # Year selected only
+
+    # Whole year
     return (
         date(year, 1, 1),
         date(year + 1, 1, 1)
@@ -198,7 +268,11 @@ def get_dcr_kpis(
         end_date
     ]
 
-    # Only join employee table if designation is selected
+
+    # -----------------------------------------------------
+    # DESIGNATION
+    # -----------------------------------------------------
+
     if designation is not None:
 
         query += """
@@ -213,7 +287,11 @@ def get_dcr_kpis(
 
         params.append(designation)
 
-    # Division already exists directly in DCRReport
+
+    # -----------------------------------------------------
+    # DIVISION
+    # -----------------------------------------------------
+
     if division_code is not None:
 
         conditions.append(
@@ -222,17 +300,31 @@ def get_dcr_kpis(
 
         params.append(division_code)
 
+
     query += "\nWHERE " + "\nAND ".join(conditions)
 
+
     conn = get_connection()
-    cursor = conn.cursor(as_dict=True)
 
-    cursor.execute(
-        query,
-        tuple(params)
-    )
+    try:
+        cursor = conn.cursor(as_dict=True)
 
-    return cursor.fetchone()
+        cursor.execute(
+            query,
+            tuple(params)
+        )
+
+        result = cursor.fetchone()
+
+        return result
+
+    finally:
+        conn.close()
+
+
+# =========================================================
+# AVAILABLE YEARS
+# =========================================================
 
 available_years = list(
     range(
@@ -241,6 +333,8 @@ available_years = list(
         -1
     )
 )
+
+
 # =========================================================
 # SIDEBAR
 # =========================================================
@@ -248,11 +342,9 @@ available_years = list(
 st.sidebar.header("Filters")
 
 
-# ---------------------------------------------------------
+# =========================================================
 # YEAR
-# ---------------------------------------------------------
-
-years = get_years()
+# =========================================================
 
 selected_year = st.sidebar.selectbox(
     "Year",
@@ -260,9 +352,9 @@ selected_year = st.sidebar.selectbox(
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # QUARTER
-# ---------------------------------------------------------
+# =========================================================
 
 quarter_options = {
     "All": None,
@@ -282,9 +374,9 @@ selected_quarter = quarter_options[
 ]
 
 
-# ---------------------------------------------------------
+# =========================================================
 # MONTH
-# ---------------------------------------------------------
+# =========================================================
 
 all_months = {
     1: "January",
@@ -302,7 +394,7 @@ all_months = {
 }
 
 
-# Restrict months according to selected quarter
+# Months according to quarter
 if selected_quarter == 1:
     valid_months = [1, 2, 3]
 
@@ -319,11 +411,30 @@ else:
     valid_months = list(range(1, 13))
 
 
+# Remove months before first available DCR month
+# and after latest available DCR month
+valid_months = [
+    month_number
+    for month_number in valid_months
+
+    if not (
+        selected_year == min_report_date.year
+        and month_number < min_report_date.month
+    )
+
+    and not (
+        selected_year == max_report_date.year
+        and month_number > max_report_date.month
+    )
+]
+
+
 month_options = {
     "All": None
 }
 
 for month_number in valid_months:
+
     month_options[
         all_months[month_number]
     ] = month_number
@@ -339,9 +450,9 @@ selected_month = month_options[
 ]
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DESIGNATION
-# ---------------------------------------------------------
+# =========================================================
 
 designations = get_designations()
 
@@ -357,9 +468,9 @@ designation_value = (
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DIVISION
-# ---------------------------------------------------------
+# =========================================================
 
 division_rows = get_divisions()
 
@@ -381,7 +492,7 @@ division_code = (
 
 
 # =========================================================
-# CONVERT YEAR / QUARTER / MONTH → DATE RANGE
+# CONVERT FILTERS TO DATE RANGE
 # =========================================================
 
 start_date, end_date = get_date_range(
@@ -390,58 +501,109 @@ start_date, end_date = get_date_range(
     selected_month
 )
 
-# Do not query outside actual DCR data range
+
+# =========================================================
+# CLAMP RANGE TO ACTUAL DCR DATA
+# =========================================================
+
 if start_date < min_report_date:
     start_date = min_report_date
 
-max_end_date = max_report_date.replace(
-    day=max_report_date.day
+
+actual_max_end = (
+    max_report_date
+    + timedelta(days=1)
 )
 
-# end_date is exclusive, so add one day to max report date
-from datetime import timedelta
-
-actual_max_end = max_report_date + timedelta(days=1)
 
 if end_date > actual_max_end:
     end_date = actual_max_end
 
 
 # =========================================================
-# SHOW ACTIVE FILTER PERIOD
+# HANDLE PERIOD WITH NO DATA
+# =========================================================
+
+if start_date >= end_date:
+
+    st.warning(
+        "No DCR data is available for the selected period."
+    )
+
+    st.stop()
+
+
+# =========================================================
+# DISPLAY AVAILABLE / SELECTED RANGE
 # =========================================================
 
 st.caption(
-    f"Reporting period: "
+    f"Data available: "
+    f"{min_report_date.strftime('%d %b %Y')} "
+    f"to "
+    f"{max_report_date.strftime('%d %b %Y')}"
+)
+
+
+selected_end_display = (
+    end_date
+    - timedelta(days=1)
+)
+
+
+st.caption(
+    f"Selected period: "
     f"{start_date.strftime('%d %b %Y')} "
     f"to "
-    f"{(end_date).strftime('%d %b %Y')} "
-    f"(end date exclusive)"
+    f"{selected_end_display.strftime('%d %b %Y')}"
 )
 
 
 # =========================================================
-# GET KPIs
+# GET KPI DATA
 # =========================================================
 
-with st.spinner("Loading dashboard..."):
+try:
 
-    kpis = get_dcr_kpis(
-        start_date=start_date,
-        end_date=end_date,
-        designation=designation_value,
-        division_code=division_code
+    with st.spinner("Loading dashboard..."):
+
+        kpis = get_dcr_kpis(
+            start_date=start_date,
+            end_date=end_date,
+            designation=designation_value,
+            division_code=division_code
+        )
+
+except Exception as error:
+
+    st.error(
+        "The DCR query could not be completed. "
+        "Please try selecting a smaller period such as a month or quarter."
     )
+
+    st.exception(error)
+
+    st.stop()
 
 
 # =========================================================
 # KPI CARDS
 # =========================================================
 
+if kpis is None:
+
+    st.warning(
+        "No DCR records were found for the selected filters."
+    )
+
+    st.stop()
+
+
 col1, col2, col3, col4, col5 = st.columns(5)
 
 
 with col1:
+
     st.metric(
         "Active Employees",
         f"{int(kpis['ActiveEmployees'] or 0):,}"
@@ -449,6 +611,7 @@ with col1:
 
 
 with col2:
+
     st.metric(
         "Unique Doctors",
         f"{int(kpis['UniqueDoctors'] or 0):,}"
@@ -456,6 +619,7 @@ with col2:
 
 
 with col3:
+
     st.metric(
         "Doctor-Day Contacts",
         f"{int(kpis['DoctorDayContacts'] or 0):,}"
@@ -463,6 +627,7 @@ with col3:
 
 
 with col4:
+
     st.metric(
         "Products Detailed",
         f"{int(kpis['ProductsDetailed'] or 0):,}"
@@ -470,6 +635,7 @@ with col4:
 
 
 with col5:
+
     st.metric(
         "DCR Records",
         f"{int(kpis['TotalDCRRecords'] or 0):,}"
