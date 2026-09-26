@@ -435,6 +435,10 @@ selected_month = month_options[
     selected_month_label
 ]
 
+if selected_year == "All":
+    selected_quarter = None
+    selected_month = None
+
 
 # =========================================================
 # DESIGNATION
@@ -481,12 +485,26 @@ division_code = (
 # CONVERT FILTERS TO DATE RANGE
 # =========================================================
 
-start_date, end_date = get_date_range(
-    selected_year,
-    selected_quarter,
-    selected_month
-)
+if selected_year == "All":
 
+    start_date = min_report_date
+    end_date = max_report_date + timedelta(days=1)
+
+else:
+
+    start_date, end_date = get_date_range(
+        selected_year,
+        selected_quarter,
+        selected_month
+    )
+
+    if start_date < min_report_date:
+        start_date = min_report_date
+
+    actual_max_end = max_report_date + timedelta(days=1)
+
+    if end_date > actual_max_end:
+        end_date = actual_max_end
 
 # =========================================================
 # CLAMP RANGE TO ACTUAL DCR DATA
