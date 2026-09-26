@@ -765,17 +765,16 @@ st.caption(
 )
 
 
-selected_end_display = (
-    end_date
+dcr_selected_end_display = (
+    dcr_end_date
     - timedelta(days=1)
 )
 
-
 st.caption(
     f"Selected period: "
-    f"{start_date.strftime('%d %b %Y')} "
+    f"{dcr_start_date.strftime('%d %b %Y')} "
     f"to "
-    f"{selected_end_display.strftime('%d %b %Y')}"
+    f"{dcr_selected_end_display.strftime('%d %b %Y')}"
 )
 
 
