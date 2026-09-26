@@ -329,9 +329,12 @@ st.sidebar.header("Filters")
 # YEAR
 # =========================================================
 
+year_options = ["All"] + available_years
+
 selected_year = st.sidebar.selectbox(
     "Year",
-    available_years
+    year_options,
+    index=0
 )
 
 
