@@ -700,6 +700,6 @@ with col3:
 
 with col4:
     st.metric(
-        "Visits Count",
-        f"{int(kpis['DoctorDayContacts'] or 0):,}"
+        "Doctor-Day Contacts",
+        f"{doctor_day_contacts:,}"
     )
