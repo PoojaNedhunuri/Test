@@ -678,7 +678,7 @@ if kpis is None:
     st.stop()
 
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     st.metric(
@@ -698,8 +698,3 @@ with col3:
         f"{int(kpis['ProductsDetailed'] or 0):,}"
     )
 
-with col4:
-    st.metric(
-        "Doctor-Day Contacts",
-        f"{doctor_day_contacts:,}"
-    )
