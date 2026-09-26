@@ -185,67 +185,60 @@ def get_divisions():
 # DATE RANGE FUNCTION
 # =========================================================
 
-def get_date_range(year, quarter=None, month=None):
+@st.cache_data(ttl=3600)
+def get_dim_years():
 
-    # Month selected
-    if month is not None:
-
-        start_date = date(
-            year,
-            month,
-            1
-        )
-
-        if month == 12:
-            end_date = date(
-                year + 1,
-                1,
-                1
-            )
-
-        else:
-            end_date = date(
-                year,
-                month + 1,
-                1
-            )
-
-        return start_date, end_date
+    return fetch_list("""
+        SELECT DISTINCT YearNumber
+        FROM dbo.DimDate
+        WHERE YearNumber IS NOT NULL
+        ORDER BY YearNumber DESC
+    """)
 
 
-    # Quarter selected
+@st.cache_data(ttl=3600)
+def get_dim_quarters(year):
+
+    return fetch_list("""
+        SELECT DISTINCT QuarterNumber
+        FROM dbo.DimDate
+        WHERE YearNumber = %s
+        ORDER BY QuarterNumber
+    """, (year,))
+
+
+@st.cache_data(ttl=3600)
+def get_dim_months(year, quarter=None):
+
+    query = """
+        SELECT DISTINCT
+            MonthNumber,
+            MonthName
+        FROM dbo.DimDate
+        WHERE YearNumber = %s
+    """
+
+    params = [year]
+
     if quarter is not None:
+        query += """
+            AND QuarterNumber = %s
+        """
+        params.append(quarter)
 
-        start_month = ((quarter - 1) * 3) + 1
+    query += """
+        ORDER BY MonthNumber
+    """
 
-        start_date = date(
-            year,
-            start_month,
-            1
-        )
+    conn = get_connection()
 
-        if quarter == 4:
-            end_date = date(
-                year + 1,
-                1,
-                1
-            )
+    try:
+        cursor = conn.cursor()
+        cursor.execute(query, tuple(params))
+        return cursor.fetchall()
 
-        else:
-            end_date = date(
-                year,
-                start_month + 3,
-                1
-            )
-
-        return start_date, end_date
-
-
-    # Whole year
-    return (
-        date(year, 1, 1),
-        date(year + 1, 1, 1)
-    )
+    finally:
+        conn.close()
 
 
 # =========================================================
@@ -514,13 +507,7 @@ def get_sales_kpis(
 # AVAILABLE YEARS
 # =========================================================
 
-available_years = list(
-    range(
-        max_report_date.year,
-        min_report_date.year - 1,
-        -1
-    )
-)
+available_years = get_dim_years()
 
 
 # =========================================================
@@ -547,104 +534,59 @@ selected_year = st.sidebar.selectbox(
 # QUARTER
 # =========================================================
 
-quarter_options = {
-    "All": None,
-    "Q1": 1,
-    "Q2": 2,
-    "Q3": 3,
-    "Q4": 4
-}
+if selected_year == "All":
+
+    quarter_options = {
+        "All": None
+    }
+
+else:
+
+    dim_quarters = get_dim_quarters(selected_year)
+
+    quarter_options = {
+        "All": None
+    }
+
+    for q in dim_quarters:
+        quarter_options[f"Q{q}"] = q
+
 
 selected_quarter_label = st.sidebar.selectbox(
     "Quarter",
-    list(quarter_options.keys())
+    list(quarter_options.keys()),
+    index=0
 )
 
-selected_quarter = quarter_options[
-    selected_quarter_label
-]
-
+selected_quarter = quarter_options[selected_quarter_label]
 
 # =========================================================
 # MONTH
 # =========================================================
 
-all_months = {
-    1: "January",
-    2: "February",
-    3: "March",
-    4: "April",
-    5: "May",
-    6: "June",
-    7: "July",
-    8: "August",
-    9: "September",
-    10: "October",
-    11: "November",
-    12: "December"
-}
-
-
-# Months according to quarter
-if selected_quarter == 1:
-    valid_months = [1, 2, 3]
-
-elif selected_quarter == 2:
-    valid_months = [4, 5, 6]
-
-elif selected_quarter == 3:
-    valid_months = [7, 8, 9]
-
-elif selected_quarter == 4:
-    valid_months = [10, 11, 12]
-
-else:
-    valid_months = list(range(1, 13))
-
-
-# Remove months before first available DCR month
-# and after latest available DCR month
-valid_months = [
-    month_number
-    for month_number in valid_months
-
-    if not (
-        selected_year == min_report_date.year
-        and month_number < min_report_date.month
-    )
-
-    and not (
-        selected_year == max_report_date.year
-        and month_number > max_report_date.month
-    )
-]
-
-
 month_options = {
     "All": None
 }
 
-for month_number in valid_months:
+if selected_year != "All":
 
-    month_options[
-        all_months[month_number]
-    ] = month_number
+    month_rows = get_dim_months(
+        selected_year,
+        selected_quarter
+    )
+
+    for month_number, month_name in month_rows:
+
+        month_options[month_name] = month_number
 
 
 selected_month_label = st.sidebar.selectbox(
     "Month",
-    list(month_options.keys())
+    list(month_options.keys()),
+    index=0
 )
 
-selected_month = month_options[
-    selected_month_label
-]
-
-if selected_year == "All":
-    selected_quarter = None
-    selected_month = None
-
-
+selected_month = month_options[selected_month_label]
 # =========================================================
 # DESIGNATION
 # =========================================================
