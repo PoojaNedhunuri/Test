@@ -133,6 +133,20 @@ if min_report_date is None or max_report_date is None:
     st.error("No ReportDate values were found in DCRReport.")
     st.stop()
 
+if min_sales_date is None or max_sales_date is None:
+    st.error("No InvoiceDate_New values were found in PrimarySales.")
+    st.stop()
+
+# Combined actual data range for dashboard filters
+dashboard_min_date = min(
+    min_report_date,
+    min_sales_date
+)
+
+dashboard_max_date = max(
+    max_report_date,
+    max_sales_date
+)
 
 # =========================================================
 # FILTER VALUES
@@ -182,33 +196,50 @@ def get_divisions():
 
 
 # =========================================================
-# DATE RANGE FUNCTION
+# DIMDATE FILTER FUNCTIONS
 # =========================================================
 
 @st.cache_data(ttl=3600)
-def get_dim_years():
+def get_dim_years(min_date, max_date):
 
     return fetch_list("""
         SELECT DISTINCT YearNumber
         FROM dbo.DimDate
         WHERE YearNumber IS NOT NULL
+          AND FullDate >= %s
+          AND FullDate <= %s
         ORDER BY YearNumber DESC
-    """)
+    """, (min_date, max_date))
 
 
 @st.cache_data(ttl=3600)
-def get_dim_quarters(year):
+def get_dim_quarters(
+    year,
+    min_date,
+    max_date
+):
 
     return fetch_list("""
         SELECT DISTINCT QuarterNumber
         FROM dbo.DimDate
         WHERE YearNumber = %s
+          AND FullDate >= %s
+          AND FullDate <= %s
         ORDER BY QuarterNumber
-    """, (year,))
+    """, (
+        year,
+        min_date,
+        max_date
+    ))
 
 
 @st.cache_data(ttl=3600)
-def get_dim_months(year, quarter=None):
+def get_dim_months(
+    year,
+    min_date,
+    max_date,
+    quarter=None
+):
 
     query = """
         SELECT DISTINCT
@@ -216,14 +247,22 @@ def get_dim_months(year, quarter=None):
             MonthName
         FROM dbo.DimDate
         WHERE YearNumber = %s
+          AND FullDate >= %s
+          AND FullDate <= %s
     """
 
-    params = [year]
+    params = [
+        year,
+        min_date,
+        max_date
+    ]
 
     if quarter is not None:
+
         query += """
             AND QuarterNumber = %s
         """
+
         params.append(quarter)
 
     query += """
@@ -233,13 +272,19 @@ def get_dim_months(year, quarter=None):
     conn = get_connection()
 
     try:
+
         cursor = conn.cursor()
-        cursor.execute(query, tuple(params))
+
+        cursor.execute(
+            query,
+            tuple(params)
+        )
+
         return cursor.fetchall()
 
     finally:
-        conn.close()
 
+        conn.close()
 
 # =========================================================
 # DCR KPI QUERY
@@ -507,7 +552,10 @@ def get_sales_kpis(
 # AVAILABLE YEARS
 # =========================================================
 
-available_years = get_dim_years()
+available_years = get_dim_years(
+    dashboard_min_date,
+    dashboard_max_date
+)
 
 
 # =========================================================
@@ -542,14 +590,21 @@ if selected_year == "All":
 
 else:
 
-    dim_quarters = get_dim_quarters(selected_year)
+    dim_quarters = get_dim_quarters(
+        selected_year,
+        dashboard_min_date,
+        dashboard_max_date
+    )
 
     quarter_options = {
         "All": None
     }
 
     for q in dim_quarters:
-        quarter_options[f"Q{q}"] = q
+
+        quarter_options[
+            f"Q{q}"
+        ] = q
 
 
 selected_quarter_label = st.sidebar.selectbox(
@@ -558,8 +613,9 @@ selected_quarter_label = st.sidebar.selectbox(
     index=0
 )
 
-selected_quarter = quarter_options[selected_quarter_label]
-
+selected_quarter = quarter_options[
+    selected_quarter_label
+]
 # =========================================================
 # MONTH
 # =========================================================
@@ -568,16 +624,24 @@ month_options = {
     "All": None
 }
 
+
 if selected_year != "All":
 
     month_rows = get_dim_months(
         selected_year,
+        dashboard_min_date,
+        dashboard_max_date,
         selected_quarter
     )
 
-    for month_number, month_name in month_rows:
+    for (
+        month_number,
+        month_name
+    ) in month_rows:
 
-        month_options[month_name] = month_number
+        month_options[
+            month_name
+        ] = month_number
 
 
 selected_month_label = st.sidebar.selectbox(
@@ -586,7 +650,9 @@ selected_month_label = st.sidebar.selectbox(
     index=0
 )
 
-selected_month = month_options[selected_month_label]
+selected_month = month_options[
+    selected_month_label
+]
 # =========================================================
 # DESIGNATION
 # =========================================================
@@ -634,8 +700,12 @@ division_code = (
 
 if selected_year == "All":
 
-    start_date = min_report_date
-    end_date = max_report_date + timedelta(days=1)
+    start_date = dashboard_min_date
+
+    end_date = (
+        dashboard_max_date
+        + timedelta(days=1)
+    )
 
 else:
 
@@ -644,44 +714,43 @@ else:
         selected_quarter,
         selected_month
     )
-
-    if start_date < min_report_date:
-        start_date = min_report_date
-
-    actual_max_end = max_report_date + timedelta(days=1)
-
-    if end_date > actual_max_end:
-        end_date = actual_max_end
-
 # =========================================================
-# CLAMP RANGE TO ACTUAL DCR DATA
+# SOURCE-SPECIFIC DATE RANGES
 # =========================================================
 
-if start_date < min_report_date:
-    start_date = min_report_date
+# DCR date range
+dcr_start_date = max(
+    start_date,
+    min_report_date
+)
 
+dcr_end_date = min(
+    end_date,
+    max_report_date + timedelta(days=1)
+)
 
-actual_max_end = (
-    max_report_date
-    + timedelta(days=1)
+dcr_has_data = (
+    dcr_start_date
+    < dcr_end_date
 )
 
 
-if end_date > actual_max_end:
-    end_date = actual_max_end
+# Primary Sales date range
+sales_start_date = max(
+    start_date,
+    min_sales_date
+)
 
+sales_end_date = min(
+    end_date,
+    max_sales_date + timedelta(days=1)
+)
 
-# =========================================================
-# HANDLE PERIOD WITH NO DATA
-# =========================================================
+sales_has_data = (
+    sales_start_date
+    < sales_end_date
+)
 
-if start_date >= end_date:
-
-    st.warning(
-        "No DCR data is available for the selected period."
-    )
-
-    st.stop()
 
 
 # =========================================================
@@ -716,31 +785,46 @@ st.caption(
 
 try:
 
-    with st.spinner("Loading DCR KPIs..."):
+    with st.spinner(
+        "Loading DCR KPIs..."
+    ):
 
-        kpis = get_dcr_kpis(
-            start_date=start_date,
-            end_date=end_date,
-            designation=designation_value,
-            division_code=division_code
-        )
+        if dcr_has_data:
 
-        # Doctor-Day Contacts is temporarily kept commented because
-        # the current query is expensive on the large DCRReport table.
-        # Keep this code for review with TL / future optimization.
+            kpis = get_dcr_kpis(
+                start_date=dcr_start_date,
+                end_date=dcr_end_date,
+                designation=designation_value,
+                division_code=division_code
+            )
+
+        else:
+
+            kpis = {
+                "ActiveEmployees": 0,
+                "UniqueDoctors": 0,
+                "ProductsDetailed": 0
+            }
+
+
+        # Doctor-Day Contacts is temporarily kept commented
+        # because the current query is expensive on the
+        # large DCRReport table.
         #
         # doctor_day_contacts = get_doctor_day_contacts(
-        #     start_date=start_date,
-        #     end_date=end_date,
+        #     start_date=dcr_start_date,
+        #     end_date=dcr_end_date,
         #     designation=designation_value,
         #     division_code=division_code
         # )
+
 
 except Exception as error:
 
     st.error(
         "The DCR query could not be completed. "
-        "Please try selecting a smaller period such as a month or quarter."
+        "Please try selecting a smaller period "
+        "such as a month or quarter."
     )
 
     st.exception(error)
@@ -750,30 +834,37 @@ except Exception as error:
 
 try:
 
-    with st.spinner("Loading Primary Sales KPIs..."):
-        sales_start_date = max(
-            start_date,
-            min_sales_date
-        )
-        
-        sales_end_date = min(
-            end_date,
-            max_sales_date + timedelta(days=1)
-        )
-        sales_selected_end_display = (
-            sales_end_date
-            - timedelta(days=1)
-        )
-        sales_kpis = get_sales_kpis(
-            start_date=sales_start_date,
-            end_date=sales_end_date,
-            division_code=division_code
-        )
+    with st.spinner(
+        "Loading Primary Sales KPIs..."
+    ):
+
+        if sales_has_data:
+
+            sales_kpis = get_sales_kpis(
+                start_date=sales_start_date,
+                end_date=sales_end_date,
+                division_code=division_code
+            )
+
+        else:
+
+            sales_kpis = {
+                "GrossSales": 0,
+                "ReturnsAmount": 0,
+                "NetSales": 0,
+                "GrossQty": 0,
+                "ReturnQty": 0,
+                "NetQty": 0,
+                "ProductsSold": 0,
+                "SalesRecords": 0
+            }
+
 
 except Exception as error:
 
     st.error(
-        "The Primary Sales query could not be completed."
+        "The Primary Sales query "
+        "could not be completed."
     )
 
     st.exception(error)
@@ -826,13 +917,17 @@ st.caption(
     f"{max_sales_date.strftime('%d %b %Y')}"
 )
 
-st.caption(
-    f"Selected period: "
-    f"{sales_start_date.strftime('%d %b %Y')} "
-    f"to "
-    f"{sales_selected_end_display.strftime('%d %b %Y')}"
+selected_end_display = (
+    end_date
+    - timedelta(days=1)
 )
 
+st.caption(
+    f"Selected period: "
+    f"{start_date.strftime('%d %b %Y')} "
+    f"to "
+    f"{selected_end_display.strftime('%d %b %Y')}"
+)
 
 s1, s2, s3, s4 = st.columns(4)
 
