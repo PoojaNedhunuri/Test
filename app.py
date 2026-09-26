@@ -693,3 +693,138 @@ with col3:
         f"{int(kpis['ProductsDetailed'] or 0):,}"
     )
 
+# =========================================================
+# Sales Performance
+# =========================================================
+@st.cache_data(ttl=600)
+def get_sales_kpis(
+    start_date,
+    end_date,
+    division_code=None
+):
+
+    query = """
+        SELECT
+            SUM(
+                CASE
+                    WHEN NetAmount > 0
+                    THEN NetAmount
+                    ELSE 0
+                END
+            ) AS GrossSales,
+
+            ABS(
+                SUM(
+                    CASE
+                        WHEN NetAmount < 0
+                        THEN NetAmount
+                        ELSE 0
+                    END
+                )
+            ) AS ReturnsAmount,
+
+            SUM(NetAmount) AS NetSales,
+
+            SUM(
+                CASE
+                    WHEN NetQty > 0
+                    THEN NetQty
+                    ELSE 0
+                END
+            ) AS GrossQty,
+
+            ABS(
+                SUM(
+                    CASE
+                        WHEN NetQty < 0
+                        THEN NetQty
+                        ELSE 0
+                    END
+                )
+            ) AS ReturnQty,
+
+            SUM(NetQty) AS NetQty,
+
+            COUNT(DISTINCT MaterialCode) AS ProductsSold,
+
+            COUNT_BIG(*) AS SalesRecords
+
+        FROM dbo.PrimarySales
+
+        WHERE InvoiceDate_New >= %s
+          AND InvoiceDate_New < %s
+    """
+
+    params = [start_date, end_date]
+
+    if division_code is not None:
+        query += """
+            AND DivisionCode = %s
+        """
+        params.append(division_code)
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute(query, tuple(params))
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+st.subheader("Primary Sales")
+
+s1, s2, s3, s4 = st.columns(4)
+
+with s1:
+    st.metric(
+        "Gross Sales",
+        f"₹{float(sales_kpis['GrossSales'] or 0):,.2f}"
+    )
+
+with s2:
+    st.metric(
+        "Returns",
+        f"₹{float(sales_kpis['ReturnsAmount'] or 0):,.2f}"
+    )
+
+with s3:
+    st.metric(
+        "Net Sales",
+        f"₹{float(sales_kpis['NetSales'] or 0):,.2f}"
+    )
+
+with s4:
+    st.metric(
+        "Products Sold",
+        f"{int(sales_kpis['ProductsSold'] or 0):,}"
+    )
+
+
+s5, s6, s7, s8 = st.columns(4)
+
+with s5:
+    st.metric(
+        "Gross Quantity",
+        f"{float(sales_kpis['GrossQty'] or 0):,.0f}"
+    )
+
+with s6:
+    st.metric(
+        "Return Quantity",
+        f"{float(sales_kpis['ReturnQty'] or 0):,.0f}"
+    )
+
+with s7:
+    st.metric(
+        "Net Quantity",
+        f"{float(sales_kpis['NetQty'] or 0):,.0f}"
+    )
+
+with s8:
+    st.metric(
+        "Sales Records",
+        f"{int(sales_kpis['SalesRecords'] or 0):,}"
+    )
+
