@@ -642,12 +642,12 @@ try:
             designation=designation_value,
             division_code=division_code
         )
-        doctor_day_contacts = get_doctor_day_contacts(
-            start_date=start_date,
-            end_date=end_date,
-            designation=designation_value,
-            division_code=division_code
-        )
+        # doctor_day_contacts = get_doctor_day_contacts(
+        #     start_date=start_date,
+        #     end_date=end_date,
+        #     designation=designation_value,
+        #     division_code=division_code
+        # )
 except Exception as error:
 
     st.error(
