@@ -296,78 +296,78 @@ def get_dcr_kpis(
 
     finally:
         conn.close()
-'''
-@st.cache_data(ttl=600)
-def get_doctor_day_contacts(
-    start_date,
-    end_date,
-    designation=None,
-    division_code=None
-):
 
-    query = """
-        SELECT COUNT(*) AS DoctorDayContacts
-        FROM
-        (
-            SELECT
-                d.C_EmpNo,
-                d.C_DSC_Code,
-                d.ReportDate
+# @st.cache_data(ttl=600)
+# def get_doctor_day_contacts(
+#     start_date,
+#     end_date,
+#     designation=None,
+#     division_code=None
+# ):
 
-            FROM dbo.DCRReport d
-    """
+#     query = """
+#         SELECT COUNT(*) AS DoctorDayContacts
+#         FROM
+#         (
+#             SELECT
+#                 d.C_EmpNo,
+#                 d.C_DSC_Code,
+#                 d.ReportDate
 
-    conditions = [
-        "d.ReportDate >= %s",
-        "d.ReportDate < %s",
-        "d.C_EmpNo IS NOT NULL",
-        "d.C_DSC_Code IS NOT NULL",
-        "d.C_EmpNo <> '000000'"
-    ]
+#             FROM dbo.DCRReport d
+#     """
 
-    params = [start_date, end_date]
+#     conditions = [
+#         "d.ReportDate >= %s",
+#         "d.ReportDate < %s",
+#         "d.C_EmpNo IS NOT NULL",
+#         "d.C_DSC_Code IS NOT NULL",
+#         "d.C_EmpNo <> '000000'"
+#     ]
 
-    if designation is not None:
-        conditions.append("""
-            LEFT(
-                d.C_FS_Code,
-                PATINDEX('%[0-9]%', d.C_FS_Code + '0') - 1
-            ) = %s
-        """)
+#     params = [start_date, end_date]
+
+#     if designation is not None:
+#         conditions.append("""
+#             LEFT(
+#                 d.C_FS_Code,
+#                 PATINDEX('%[0-9]%', d.C_FS_Code + '0') - 1
+#             ) = %s
+#         """)
     
-        params.append(designation)
+#         params.append(designation)
 
-    if division_code is not None:
-        conditions.append("d.DivisionCode = %s")
-        params.append(division_code)
+#     if division_code is not None:
+#         conditions.append("d.DivisionCode = %s")
+#         params.append(division_code)
 
-    query += "\nWHERE " + "\nAND ".join(conditions)
+#     query += "\nWHERE " + "\nAND ".join(conditions)
 
-    query += """
-            GROUP BY
-                d.C_EmpNo,
-                d.C_DSC_Code,
-                d.ReportDate
-        ) x
-    """
+#     query += """
+#             GROUP BY
+#                 d.C_EmpNo,
+#                 d.C_DSC_Code,
+#                 d.ReportDate
+#         ) x
+#     """
 
-    conn = get_connection()
+#     conn = get_connection()
 
-    try:
-        cursor = conn.cursor(as_dict=True)
+#     try:
+#         cursor = conn.cursor(as_dict=True)
 
-        cursor.execute(
-            query,
-            tuple(params)
-        )
+#         cursor.execute(
+#             query,
+#             tuple(params)
+#         )
 
-        row = cursor.fetchone()
+#         row = cursor.fetchone()
 
-        return int(row["DoctorDayContacts"] or 0)
+#         return int(row["DoctorDayContacts"] or 0)
 
-    finally:
-        conn.close()
-'''
+#     finally:
+#         conn.close()
+
 
 
 # =========================================================
