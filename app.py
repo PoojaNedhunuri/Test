@@ -239,17 +239,7 @@ def get_dcr_kpis(
         SELECT
             COUNT(DISTINCT d.C_EmpNo) AS ActiveEmployees,
             COUNT(DISTINCT d.C_DSC_Code) AS UniqueDoctors,
-            COUNT(DISTINCT d.ItemCode) AS ProductsDetailed,
-            COUNT(
-                DISTINCT CONCAT(
-                    d.C_EmpNo,
-                    '|',
-                    d.C_DSC_Code,
-                    '|',
-                    CONVERT(VARCHAR(10), d.ReportDate, 23)
-                )
-            ) AS DoctorDayContacts
-
+            COUNT(DISTINCT d.ItemCode) AS ProductsDetailed
         FROM dbo.DCRReport d
     """
 
@@ -312,6 +302,78 @@ def get_dcr_kpis(
 
     finally:
         conn.close()
+
+@st.cache_data(ttl=600)
+def get_doctor_day_contacts(
+    start_date,
+    end_date,
+    designation=None,
+    division_code=None
+):
+
+    query = """
+        SELECT COUNT(*) AS DoctorDayContacts
+        FROM
+        (
+            SELECT
+                d.C_EmpNo,
+                d.C_DSC_Code,
+                d.ReportDate
+
+            FROM dbo.DCRReport d
+    """
+
+    conditions = [
+        "d.ReportDate >= %s",
+        "d.ReportDate < %s",
+        "d.C_EmpNo IS NOT NULL",
+        "d.C_DSC_Code IS NOT NULL",
+        "d.C_EmpNo <> '000000'"
+    ]
+
+    params = [start_date, end_date]
+
+    if designation is not None:
+        query += """
+            INNER JOIN dbo.employeedata e
+                ON d.C_EmpNo = e.empCODE
+        """
+
+        conditions.append("e.newdesg = %s")
+        params.append(designation)
+
+    if division_code is not None:
+        conditions.append("d.DivisionCode = %s")
+        params.append(division_code)
+
+    query += "\nWHERE " + "\nAND ".join(conditions)
+
+    query += """
+            GROUP BY
+                d.C_EmpNo,
+                d.C_DSC_Code,
+                d.ReportDate
+        ) x
+    """
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor(as_dict=True)
+
+        cursor.execute(
+            query,
+            tuple(params)
+        )
+
+        row = cursor.fetchone()
+
+        return int(row["DoctorDayContacts"] or 0)
+
+    finally:
+        conn.close()
+
+
 
 # =========================================================
 # AVAILABLE YEARS
@@ -585,7 +647,12 @@ try:
             designation=designation_value,
             division_code=division_code
         )
-
+        doctor_day_contacts = get_doctor_day_contacts(
+            start_date=start_date,
+            end_date=end_date,
+            designation=designation_value,
+            division_code=division_code
+        )
 except Exception as error:
 
     st.error(
