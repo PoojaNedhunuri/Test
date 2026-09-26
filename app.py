@@ -282,6 +282,10 @@ def format_quantity(value):
 
     else:
         return f"{value:,.0f}"
+
+def format_count(value):
+    return f"{int(value or 0):,}"
+    
 @st.cache_data(ttl=600)
 def get_dcr_kpis(
     start_date,
