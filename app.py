@@ -99,9 +99,35 @@ def get_dcr_date_range():
     finally:
         conn.close()
 
+@st.cache_data(ttl=3600)
+def get_sales_date_range():
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                MIN(InvoiceDate_New),
+                MAX(InvoiceDate_New)
+            FROM dbo.PrimarySales
+            WHERE InvoiceDate_New IS NOT NULL
+        """)
+
+        row = cursor.fetchone()
+
+        if row is None:
+            return None, None
+
+        return row[0], row[1]
+
+    finally:
+        conn.close()
+
 
 min_report_date, max_report_date = get_dcr_date_range()
-
+min_sales_date, max_sales_date = get_sales_date_range()
 
 if min_report_date is None or max_report_date is None:
     st.error("No ReportDate values were found in DCRReport.")
@@ -225,7 +251,37 @@ def get_date_range(year, quarter=None, month=None):
 # =========================================================
 # DCR KPI QUERY
 # =========================================================
+def format_indian_currency(value):
 
+    value = float(value or 0)
+
+    if abs(value) >= 10000000:
+        return f"₹{value / 10000000:,.2f} Cr"
+
+    elif abs(value) >= 100000:
+        return f"₹{value / 100000:,.2f} L"
+
+    elif abs(value) >= 1000:
+        return f"₹{value / 1000:,.2f} K"
+
+    else:
+        return f"₹{value:,.2f}"
+
+def format_quantity(value):
+
+    value = float(value or 0)
+
+    if abs(value) >= 10000000:
+        return f"{value / 10000000:,.2f} Cr"
+
+    elif abs(value) >= 100000:
+        return f"{value / 100000:,.2f} L"
+
+    elif abs(value) >= 1000:
+        return f"{value / 1000:,.2f} K"
+
+    else:
+        return f"{value:,.0f}"
 @st.cache_data(ttl=600)
 def get_dcr_kpis(
     start_date,
@@ -749,10 +805,22 @@ except Exception as error:
 try:
 
     with st.spinner("Loading Primary Sales KPIs..."):
-
+        sales_start_date = max(
+            start_date,
+            min_sales_date
+        )
+        
+        sales_end_date = min(
+            end_date,
+            max_sales_date + timedelta(days=1)
+        )
+        sales_selected_end_display = (
+            sales_end_date
+            - timedelta(days=1)
+        )
         sales_kpis = get_sales_kpis(
-            start_date=start_date,
-            end_date=end_date,
+            start_date=sales_start_date,
+            end_date=sales_end_date,
             division_code=division_code
         )
 
@@ -803,32 +871,55 @@ with col3:
 # =========================================================
 # PRIMARY SALES KPI CARDS
 # =========================================================
-st.subheader("Primary Sales")
+st.subheader("Primary Sales Performance")
+
+st.caption(
+    f"Data available: "
+    f"{min_sales_date.strftime('%d %b %Y')} "
+    f"to "
+    f"{max_sales_date.strftime('%d %b %Y')}"
+)
+
+st.caption(
+    f"Selected period: "
+    f"{sales_start_date.strftime('%d %b %Y')} "
+    f"to "
+    f"{sales_selected_end_display.strftime('%d %b %Y')}"
+)
+
 
 s1, s2, s3, s4 = st.columns(4)
 
 with s1:
     st.metric(
         "Gross Sales",
-        f"₹{float(sales_kpis['GrossSales'] or 0):,.2f}"
+        format_indian_currency(
+            sales_kpis["GrossSales"]
+        )
     )
 
 with s2:
     st.metric(
         "Returns",
-        f"₹{float(sales_kpis['ReturnsAmount'] or 0):,.2f}"
+        format_indian_currency(
+            sales_kpis["ReturnsAmount"]
+        )
     )
 
 with s3:
     st.metric(
         "Net Sales",
-        f"₹{float(sales_kpis['NetSales'] or 0):,.2f}"
+        format_indian_currency(
+            sales_kpis["NetSales"]
+        )
     )
 
 with s4:
     st.metric(
         "Products Sold",
-        f"{int(sales_kpis['ProductsSold'] or 0):,}"
+        format_count(
+            sales_kpis["ProductsSold"]
+        )
     )
 
 
@@ -837,23 +928,31 @@ s5, s6, s7, s8 = st.columns(4)
 with s5:
     st.metric(
         "Gross Quantity",
-        f"{float(sales_kpis['GrossQty'] or 0):,.0f}"
+        format_quantity(
+            sales_kpis["GrossQty"]
+        )
     )
 
 with s6:
     st.metric(
         "Return Quantity",
-        f"{float(sales_kpis['ReturnQty'] or 0):,.0f}"
+        format_quantity(
+            sales_kpis["ReturnQty"]
+        )
     )
 
 with s7:
     st.metric(
         "Net Quantity",
-        f"{float(sales_kpis['NetQty'] or 0):,.0f}"
+        format_quantity(
+            sales_kpis["NetQty"]
+        )
     )
 
 with s8:
     st.metric(
         "Sales Records",
-        f"{int(sales_kpis['SalesRecords'] or 0):,}"
+        format_count(
+            sales_kpis["SalesRecords"]
+        )
     )
