@@ -1,123 +1,95 @@
-except Exception as error:
 
-    st.error(
-        "The DCR query could not be completed. "
-        "Please try selecting a smaller period such as a month or quarter."
+import streamlit as st
+import pymssql
+from datetime import date, timedelta
+
+
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+
+st.set_page_config(
+    page_title="DCR Performance Dashboard",
+    layout="wide"
+)
+
+st.title("DCR Performance Dashboard")
+
+
+# =========================================================
+# DATABASE CONNECTION
+# =========================================================
+
+def get_connection():
+    return pymssql.connect(
+        server=st.secrets["DB_SERVER"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        database=st.secrets["DB_DATABASE"],
+        login_timeout=15,
+        timeout=300
     )
 
-    st.exception(error)
 
-    st.stop()
+# =========================================================
+# SIMPLE QUERY HELPER
+# =========================================================
 
+def fetch_list(query, params=None):
 
-try:
+    conn = get_connection()
 
-    with st.spinner("Loading Primary Sales KPIs..."):
+    try:
+        cursor = conn.cursor()
 
-        sales_kpis = get_sales_kpis(
-            start_date=start_date,
-            end_date=end_date,
-            division_code=division_code
+        cursor.execute(
+            query,
+            params or ()
         )
 
-except Exception as error:
+        rows = cursor.fetchall()
 
-    st.error(
-        "The Primary Sales query could not be completed."
-    )
+        return [
+            row[0]
+            for row in rows
+            if row[0] is not None
+        ]
 
-    st.exception(error)
-
-    st.stop()
+    finally:
+        conn.close()
 
 
 # =========================================================
-# KPI CARDS
+# ACTUAL DCR DATE RANGE
 # =========================================================
 
-if kpis is None:
+@st.cache_data(ttl=3600)
+def get_dcr_date_range():
 
-    st.warning(
-        "No DCR records were found for the selected filters."
-    )
+    conn = get_connection()
 
-    st.stop()
+    try:
+        cursor = conn.cursor()
 
+        # Earliest available ReportDate
+        cursor.execute("""
+            SELECT TOP 1 ReportDate
+            FROM dbo.DCRReport
+            WHERE ReportDate IS NOT NULL
+            ORDER BY ReportDate ASC
+        """)
 
-col1, col2, col3 = st.columns(3)
+        min_row = cursor.fetchone()
 
-with col1:
-    st.metric(
-        "Active Employees",
-        f"{int(kpis['ActiveEmployees'] or 0):,}"
-    )
+        # Latest available ReportDate
+        cursor.execute("""
+            SELECT TOP 1 ReportDate
+            FROM dbo.DCRReport
+            WHERE ReportDate IS NOT NULL
+            ORDER BY ReportDate DESC
+        """)
 
-with col2:
-    st.metric(
-        "Unique Doctors",
-        f"{int(kpis['UniqueDoctors'] or 0):,}"
-    )
+        max_row = cursor.fetchone()
 
-with col3:
-    st.metric(
-        "Products Detailed",
-        f"{int(kpis['ProductsDetailed'] or 0):,}"
-    )
-
-# =========================================================
-# PRIMARY SALES KPI CARDS
-# =========================================================
-st.subheader("Primary Sales")
-
-s1, s2, s3, s4 = st.columns(4)
-
-with s1:
-    st.metric(
-        "Gross Sales",
-        f"₹{float(sales_kpis['GrossSales'] or 0):,.2f}"
-    )
-
-with s2:
-    st.metric(
-        "Returns",
-        f"₹{float(sales_kpis['ReturnsAmount'] or 0):,.2f}"
-    )
-
-with s3:
-    st.metric(
-        "Net Sales",
-        f"₹{float(sales_kpis['NetSales'] or 0):,.2f}"
-    )
-
-with s4:
-    st.metric(
-        "Products Sold",
-        f"{int(sales_kpis['ProductsSold'] or 0):,}"
-    )
-
-
-s5, s6, s7, s8 = st.columns(4)
-
-with s5:
-    st.metric(
-        "Gross Quantity",
-        f"{float(sales_kpis['GrossQty'] or 0):,.0f}"
-    )
-
-with s6:
-    st.metric(
-        "Return Quantity",
-        f"{float(sales_kpis['ReturnQty'] or 0):,.0f}"
-    )
-
-with s7:
-    st.metric(
-        "Net Quantity",
-        f"{float(sales_kpis['NetQty'] or 0):,.0f}"
-    )
-
-with s8:
-    st.metric(
-        "Sales Records",
-        f"{int(sales_kpis['SalesRecords'] or 0):,}"
-    )
+        if min_row is None or max_row is None:
+            return None, None
