@@ -117,17 +117,16 @@ def get_designations():
 
     return fetch_list("""
         SELECT DISTINCT
-            LTRIM(RTRIM(e.newdesg)) AS Designation
-        FROM dbo.employeedata e
-        WHERE e.newdesg IS NOT NULL
-          AND LTRIM(RTRIM(e.newdesg)) <> ''
-          AND LTRIM(RTRIM(e.newdesg)) <> '--Select--'
-          AND EXISTS
-          (
-              SELECT 1
-              FROM dbo.DCRReport d
-              WHERE d.C_EmpNo = e.empCODE
-          )
+            LEFT(
+                C_FS_Code,
+                PATINDEX('%[0-9]%', C_FS_Code + '0') - 1
+            ) AS Designation
+
+        FROM dbo.DCRReport
+
+        WHERE C_FS_Code IS NOT NULL
+          AND LTRIM(RTRIM(C_FS_Code)) <> ''
+
         ORDER BY Designation
     """)
 
@@ -259,19 +258,14 @@ def get_dcr_kpis(
     # Designation filter
     if designation is not None:
 
-        query += """
-            INNER JOIN dbo.employeedata e
-                ON d.C_EmpNo = e.empCODE
-        """
+        conditions.append("""
+            LEFT(
+                d.C_FS_Code,
+                PATINDEX('%[0-9]%', d.C_FS_Code + '0') - 1
+            ) = %s
+        """)
 
-        conditions.append(
-            "e.newdesg = %s"
-        )
-
-        params.append(
-            designation
-        )
-
+    params.append(designation)
 
     # Division filter
     if division_code is not None:
@@ -334,12 +328,13 @@ def get_doctor_day_contacts(
     params = [start_date, end_date]
 
     if designation is not None:
-        query += """
-            INNER JOIN dbo.employeedata e
-                ON d.C_EmpNo = e.empCODE
-        """
-
-        conditions.append("e.newdesg = %s")
+        conditions.append("""
+            LEFT(
+                d.C_FS_Code,
+                PATINDEX('%[0-9]%', d.C_FS_Code + '0') - 1
+            ) = %s
+        """)
+    
         params.append(designation)
 
     if division_code is not None:
