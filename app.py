@@ -648,6 +648,12 @@ try:
         #     designation=designation_value,
         #     division_code=division_code
         # )
+
+        sales_kpis = get_sales_kpis(
+            start_date=start_date,
+            end_date=end_date,
+            division_code=division_code
+        )
 except Exception as error:
 
     st.error(
