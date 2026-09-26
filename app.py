@@ -240,7 +240,15 @@ def get_dcr_kpis(
             COUNT(DISTINCT d.C_EmpNo) AS ActiveEmployees,
             COUNT(DISTINCT d.C_DSC_Code) AS UniqueDoctors,
             COUNT(DISTINCT d.ItemCode) AS ProductsDetailed,
-            COUNT_BIG(*) AS TotalDCRRecords
+            COUNT(
+                DISTINCT CONCAT(
+                    d.C_EmpNo,
+                    '|',
+                    d.C_DSC_Code,
+                    '|',
+                    CONVERT(VARCHAR(10), d.ReportDate, 23)
+                )
+            ) AS DoctorDayContacts
 
         FROM dbo.DCRReport d
     """
@@ -625,6 +633,6 @@ with col3:
 
 with col4:
     st.metric(
-        "DCR Records",
-        f"{int(kpis['TotalDCRRecords'] or 0):,}"
+        "Visits Count",
+        f"{int(kpis['DoctorDayContacts'] or 0):,}"
     )
