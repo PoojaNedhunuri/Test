@@ -296,7 +296,7 @@ def get_dcr_kpis(
 
     finally:
         conn.close()
-
+'''
 @st.cache_data(ttl=600)
 def get_doctor_day_contacts(
     start_date,
@@ -367,7 +367,7 @@ def get_doctor_day_contacts(
 
     finally:
         conn.close()
-
+'''
 
 
 # =========================================================
