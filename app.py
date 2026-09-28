@@ -2,7 +2,8 @@
 import streamlit as st
 import pymssql
 from datetime import date, timedelta
-
+import pandas as pd
+import plotly.express as px
 
 # =========================================================
 # PAGE CONFIG
@@ -548,6 +549,7 @@ def get_sales_kpis(
     finally:
         conn.close()
 
+
 # =========================================================
 # AVAILABLE YEARS
 # =========================================================
@@ -919,6 +921,65 @@ try:
                 division_code=division_code
             )
 
+
+            # =========================================================
+            # TOP 10 BRANDS BY NET REVENUE
+            # =========================================================
+
+            query = """
+                SELECT TOP 10
+                    BrandName,
+                    SUM(NetAmount) AS Revenue
+
+                FROM dbo.PrimarySales
+
+                WHERE InvoiceDate_New >= %s
+                  AND InvoiceDate_New < %s
+                  AND BrandName IS NOT NULL
+                  AND LTRIM(RTRIM(BrandName)) <> ''
+            """
+
+            params = [
+                sales_start_date,
+                sales_end_date
+            ]
+
+            if division_code is not None:
+
+                query += """
+                    AND DivisionCode = %s
+                """
+
+                params.append(division_code)
+
+
+            query += """
+                GROUP BY BrandName
+
+                HAVING SUM(NetAmount) > 0
+
+                ORDER BY Revenue DESC
+            """
+
+
+            conn = get_connection()
+
+            try:
+
+                cursor = conn.cursor(as_dict=True)
+
+                cursor.execute(
+                    query,
+                    tuple(params)
+                )
+
+                top_brands = cursor.fetchall()
+
+            finally:
+
+                conn.close()
+
+
         else:
 
             sales_kpis = {
@@ -932,18 +993,18 @@ try:
                 "SalesRecords": 0
             }
 
+            top_brands = []
+
 
 except Exception as error:
 
     st.error(
-        "The Primary Sales query "
-        "could not be completed."
+        "The Primary Sales query could not be completed."
     )
 
     st.exception(error)
 
     st.stop()
-
 
 # =========================================================
 # KPI CARDS
@@ -1069,4 +1130,41 @@ with s8:
         format_count(
             sales_kpis["SalesRecords"]
         )
+    )
+
+
+# =========================================================
+# TOP 10 BRAND REVENUE COMPOSITION
+# =========================================================
+
+st.subheader("Top 10 Brands - Revenue Composition")
+
+
+if top_brands:
+
+    brand_df = pd.DataFrame(top_brands)
+
+    brand_df["Revenue_Cr"] = (
+        brand_df["Revenue"]
+        / 10000000
+    )
+
+    brand_df = brand_df.sort_values(
+        "Revenue_Cr",
+        ascending=True
+    )
+
+    st.bar_chart(
+        brand_df,
+        x="BrandName",
+        y="Revenue_Cr",
+        horizontal=True,
+        use_container_width=True
+    )
+
+else:
+
+    st.info(
+        "No brand revenue data is available "
+        "for the selected period."
     )
