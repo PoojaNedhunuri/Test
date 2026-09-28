@@ -557,7 +557,81 @@ available_years = get_dim_years(
     dashboard_max_date
 )
 
+# =========================================================
+# SELECTED FILTER DATE RANGE
+# =========================================================
 
+def get_date_range(
+    year,
+    quarter=None,
+    month=None
+):
+
+    # Specific month selected
+    if month is not None:
+
+        start_date = date(
+            year,
+            month,
+            1
+        )
+
+        if month == 12:
+
+            end_date = date(
+                year + 1,
+                1,
+                1
+            )
+
+        else:
+
+            end_date = date(
+                year,
+                month + 1,
+                1
+            )
+
+        return start_date, end_date
+
+
+    # Quarter selected
+    if quarter is not None:
+
+        start_month = (
+            (quarter - 1) * 3
+        ) + 1
+
+        start_date = date(
+            year,
+            start_month,
+            1
+        )
+
+        if quarter == 4:
+
+            end_date = date(
+                year + 1,
+                1,
+                1
+            )
+
+        else:
+
+            end_date = date(
+                year,
+                start_month + 3,
+                1
+            )
+
+        return start_date, end_date
+
+
+    # Whole year selected
+    return (
+        date(year, 1, 1),
+        date(year + 1, 1, 1)
+    )
 # =========================================================
 # SIDEBAR
 # =========================================================
