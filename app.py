@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pymssql
 from datetime import date, timedelta
@@ -1139,26 +1138,53 @@ with s8:
 
 st.subheader("Top 10 Brands - Revenue Composition")
 
-
 if top_brands:
 
     brand_df = pd.DataFrame(top_brands)
 
+    # Convert revenue to Crores for chart scale
     brand_df["Revenue_Cr"] = (
-        brand_df["Revenue"]
-        / 10000000
+        brand_df["Revenue"] / 10000000
     )
 
+    # Create readable label using already defined function
+    brand_df["Revenue_Label"] = brand_df["Revenue"].apply(
+        format_indian_currency
+    )
+
+    # Highest revenue first
     brand_df = brand_df.sort_values(
         "Revenue_Cr",
         ascending=True
     )
 
-    st.bar_chart(
+    import plotly.express as px
+
+    fig = px.bar(
         brand_df,
-        x="BrandName",
-        y="Revenue_Cr",
-        horizontal=True,
+        x="Revenue_Cr",
+        y="BrandName",
+        orientation="h",
+        text="Revenue_Label",
+        labels={
+            "Revenue_Cr": "Revenue (Cr)",
+            "BrandName": "Brand"
+        }
+    )
+
+    fig.update_traces(
+        textposition="outside"
+    )
+
+    fig.update_layout(
+        xaxis_title="Revenue (Cr)",
+        yaxis_title="Brand",
+        showlegend=False,
+        height=500
+    )
+
+    st.plotly_chart(
+        fig,
         use_container_width=True
     )
 
