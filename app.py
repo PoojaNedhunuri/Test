@@ -2,7 +2,7 @@ import streamlit as st
 import pymssql
 from datetime import date, timedelta
 import pandas as pd
-
+import plotly.express as px
 
 # =========================================================
 # PAGE CONFIG
